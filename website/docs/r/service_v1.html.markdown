@@ -164,6 +164,8 @@ The following arguments are supported:
 
 * `activate` - (Optional) Conditionally prevents the Service from being activated. The apply step will continue to create a new draft version but will not activate it if this is set to false. Default true.
 * `name` - (Required) The unique name for the Service to create.
+* `comment` - (Optional) Description field for the service. Default `Managed by Terraform`.
+* `version_comment` - (Optional) Description field for the version.
 * `domain` - (Required) A set of Domain names to serve as entry points for your
 Service. Defined below.
 * `backend` - (Optional) A set of Backends to service requests from your Domains.
@@ -199,6 +201,10 @@ Defined below.
 Defined below.
 * `logentries` - (Optional) A logentries endpoint to send streaming logs too.
 Defined below.
+* `splunk` - (Optional) A Splunk endpoint to send streaming logs too.
+Defined below.
+* `blobstoragelogging` - (Optional) An Azure Blob Storage endpoint to send streaming logs too.
+Defined below.
 * `response_object` - (Optional) Allows you to create synthetic responses that exist entirely on the varnish machine. Useful for creating error or maintenance pages that exists outside the scope of your datacenter. Best when used with Condition objects.
 * `snippet` - (Optional) A set of custom, "regular" (non-dynamic) VCL Snippet configuration blocks.  Defined below.
 * `vcl` - (Optional) A set of custom VCL configuration blocks. The
@@ -225,6 +231,7 @@ Default `1000`
 * `max_conn` - (Optional) Maximum number of connections for this Backend.
 Default `200`.
 * `port` - (Optional) The port number on which the Backend responds. Default `80`.
+* `override_host` - (Optional) The hostname to override the Host header.
 * `request_condition` - (Optional, string) Name of already defined `condition`, which if met, will select this backend during a request.
 * `use_ssl` - (Optional) Whether or not to use SSL to reach the backend. Default `false`.
 * `max_tls_version` - (Optional) Maximum allowed TLS version on SSL connections to this backend.
@@ -348,7 +355,7 @@ Fastly-Geo-Region into the request headers.
 The `s3logging` block supports:
 
 * `name` - (Required) A unique name to identify this S3 Logging Bucket.
-* `bucket_name` - (Optional) An optional comment about the Domain.
+* `bucket_name` - (Required) The name of the bucket in which to store the logs.
 * `s3_access_key` - (Required) AWS Access Key of an account with the required
 permissions to post logs. It is **strongly** recommended you create a separate
 IAM user with permissions to only operate on this Bucket. This key will be
@@ -453,6 +460,32 @@ The `logentries` block supports:
 * `response_condition` - (Optional) Name of already defined `condition` to apply. This `condition` must be of type `RESPONSE`. For detailed information about Conditionals, see [Fastly's Documentation on Conditionals][fastly-conditionals].
 * `placement` - (Optional) Where in the generated VCL the logging call should be placed; one of: `none` or `waf_debug`.
 
+The `splunk` block supports:
+
+* `name` - (Required) A unique name to identify the Splunk endpoint.
+* `url` - (Required) The Splunk URL to stream logs to.
+* `token` - (Required) The Splunk token to be used for authentication.
+* `format` - (Optional) Apache-style string or VCL variables to use for log formatting. Default `%h %l %u %t \"%r\" %>s %b`.
+* `format_version` - (Optional) The version of the custom logging format used for the configured endpoint. Can be either `1` or `2`. The logging call gets placed by default in `vcl_log` if `format_version` is set to `2` and in `vcl_deliver` if `format_version` is set to `1`. Default `2`.
+* `placement` - (Optional) Where in the generated VCL the logging call should be placed, overriding any `format_version` default. Can be either `none` or `waf_debug`.
+* `response_condition` - (Optional) The name of the `condition` to apply. If empty, always execute.
+
+The `blobstoragelogging` block supports:
+
+* `name` - (Required) A unique name to identify the Azure Blob Storage endpoint.
+* `account_name` - (Required) The unique Azure Blob Storage namespace in which your data objects are stored.
+* `container` - (Required) The name of the Azure Blob Storage container in which to store logs.
+* `sas_token` - (Required) The Azure shared access signature providing write access to the blob service objects. Be sure to update your token before it expires or the logging functionality will not work.
+* `path` - (Optional) The path to upload logs to. Must end with a trailing slash. If this field is left empty, the files will be saved in the container's root path.
+* `period` - (Optional) How frequently the logs should be transferred in seconds. Default `3600`.
+* `timestamp_format` - (Optional) `strftime` specified timestamp formatting. Default `%Y-%m-%dT%H:%M:%S.000`.
+* `gzip_level` - (Optional) Level of GZIP compression from `0`to `9`. `0` means no compression. `1` is the fastest and the least compressed version, `9` is the slowest and the most compressed version. Default `0`.
+* `public_key` - (Optional) A PGP public key that Fastly will use to encrypt your log files before writing them to disk.
+* `format` - (Optional) Apache-style string or VCL variables to use for log formatting. Default `%h %l %u %t \"%r\" %>s %b`.
+* `format_version` - (Optional) The version of the custom logging format used for the configured endpoint. Can be either `1` or `2`. The logging call gets placed by default in `vcl_log` if `format_version` is set to `2` and in `vcl_deliver` if `format_version` is set to `1`. Default `2`.
+* `message_type` - (Optional) How the message should be formatted. Can be either `classic`, `loggly`, `logplex` or `blank`.  Default `classic`.
+* `placement` - (Optional) Where in the generated VCL the logging call should be placed, overriding any `format_version` default. Can be either `none` or `waf_debug`.
+* `response_condition` - (Optional) The name of the `condition` to apply. If empty, always execute.
 
 The `response_object` block supports:
 

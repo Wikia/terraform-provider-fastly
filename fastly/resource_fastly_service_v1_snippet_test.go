@@ -5,11 +5,46 @@ import (
 	"reflect"
 	"testing"
 
+	gofastly "github.com/fastly/go-fastly/fastly"
 	"github.com/hashicorp/terraform/helper/acctest"
 	"github.com/hashicorp/terraform/helper/resource"
 	"github.com/hashicorp/terraform/terraform"
-	gofastly "github.com/sethvargo/go-fastly/fastly"
 )
+
+func TestResourceFastlyFlattenSnippets(t *testing.T) {
+
+	cases := []struct {
+		remote []*gofastly.Snippet
+		local  []map[string]interface{}
+	}{
+		{
+			remote: []*gofastly.Snippet{
+				{
+					Name:     "recv_test",
+					Type:     gofastly.SnippetTypeRecv,
+					Priority: 110,
+					Content:  "if ( req.url ) {\n set req.http.my-snippet-test-header = \"true\";\n}",
+				},
+			},
+			local: []map[string]interface{}{
+				{
+					"name":     "recv_test",
+					"type":     gofastly.SnippetTypeRecv,
+					"priority": 110,
+					"content":  "if ( req.url ) {\n set req.http.my-snippet-test-header = \"true\";\n}",
+				},
+			},
+		},
+	}
+
+	for _, c := range cases {
+		out := flattenSnippets(c.remote)
+		if !reflect.DeepEqual(out, c.local) {
+			t.Fatalf("Error matching:\nexpected: %#v\n got: %#v", c.local, out)
+		}
+	}
+
+}
 
 func TestAccFastlyServiceV1Snippet_basic(t *testing.T) {
 	var service gofastly.ServiceDetail
@@ -98,8 +133,8 @@ func testAccCheckFastlyServiceV1SnippetAttributes(service *gofastly.ServiceDetai
 
 					// We don't know these things ahead of time, so ignore them
 					lr.ID = ""
-					lr.CreatedAt = ""
-					lr.UpdatedAt = ""
+					lr.CreatedAt = nil
+					lr.UpdatedAt = nil
 
 					if !reflect.DeepEqual(expected, lr) {
 						return fmt.Errorf("Unexpected VCL Snippet.\nExpected: %#v\nGot: %#v\n", expected, lr)

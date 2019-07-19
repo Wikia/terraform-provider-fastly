@@ -5,11 +5,48 @@ import (
 	"reflect"
 	"testing"
 
+	gofastly "github.com/fastly/go-fastly/fastly"
 	"github.com/hashicorp/terraform/helper/acctest"
 	"github.com/hashicorp/terraform/helper/resource"
 	"github.com/hashicorp/terraform/terraform"
-	gofastly "github.com/sethvargo/go-fastly/fastly"
 )
+
+func TestResourceFastlyFlattenCacheSettings(t *testing.T) {
+
+	cases := []struct {
+		remote []*gofastly.CacheSetting
+		local  []map[string]interface{}
+	}{
+		{
+			remote: []*gofastly.CacheSetting{
+				{
+					Name:           "alt_backend",
+					Action:         gofastly.CacheSettingActionPass,
+					StaleTTL:       3600,
+					CacheCondition: "serve_alt_backend",
+					TTL:            300,
+				},
+			},
+			local: []map[string]interface{}{
+				{
+					"name":            "alt_backend",
+					"action":          gofastly.CacheSettingActionPass,
+					"cache_condition": "serve_alt_backend",
+					"stale_ttl":       uint(3600),
+					"ttl":             uint(300),
+				},
+			},
+		},
+	}
+
+	for _, c := range cases {
+		out := flattenCacheSettings(c.remote)
+		if !reflect.DeepEqual(out, c.local) {
+			t.Fatalf("Error matching:\nexpected: %#v\n got: %#v", c.local, out)
+		}
+	}
+
+}
 
 func TestAccFastlyServiceV1CacheSetting_basic(t *testing.T) {
 	var service gofastly.ServiceDetail
@@ -89,6 +126,10 @@ func testAccCheckFastlyServiceV1CacheSettingsAttributes(service *gofastly.Servic
 					// we don't know these things ahead of time, so populate them now
 					c.ServiceID = service.ID
 					c.Version = service.ActiveVersion.Number
+					// We don't track these, so clear them out because we also wont know
+					// these ahead of time
+					lc.CreatedAt = nil
+					lc.UpdatedAt = nil
 					if !reflect.DeepEqual(c, lc) {
 						return fmt.Errorf("Bad match Cache Setting match, expected (%#v), got (%#v)", c, lc)
 					}

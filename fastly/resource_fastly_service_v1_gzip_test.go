@@ -5,14 +5,14 @@ import (
 	"reflect"
 	"testing"
 
+	gofastly "github.com/fastly/go-fastly/fastly"
 	"github.com/hashicorp/terraform/helper/acctest"
 	"github.com/hashicorp/terraform/helper/resource"
 	"github.com/hashicorp/terraform/helper/schema"
 	"github.com/hashicorp/terraform/terraform"
-	gofastly "github.com/sethvargo/go-fastly/fastly"
 )
 
-func TestFastlyServiceV1_FlattenGzips(t *testing.T) {
+func TestResourceFastlyFlattenGzips(t *testing.T) {
 	cases := []struct {
 		remote []*gofastly.Gzip
 		local  []map[string]interface{}
@@ -183,6 +183,10 @@ func testAccCheckFastlyServiceV1GzipsAttributes(service *gofastly.ServiceDetail,
 					// we don't know these things ahead of time, so populate them now
 					g.ServiceID = service.ID
 					g.Version = service.ActiveVersion.Number
+					// We don't track these, so clear them out because we also wont know
+					// these ahead of time
+					lg.CreatedAt = nil
+					lg.UpdatedAt = nil
 					if !reflect.DeepEqual(g, lg) {
 						return fmt.Errorf("Bad match Gzip match, expected (%#v), got (%#v)", g, lg)
 					}

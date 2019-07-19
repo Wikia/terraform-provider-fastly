@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"strings"
 
+	gofastly "github.com/fastly/go-fastly/fastly"
 	"github.com/hashicorp/terraform/helper/schema"
-	gofastly "github.com/sethvargo/go-fastly/fastly"
 )
 
 func resourceACLV1() *schema.Resource {
