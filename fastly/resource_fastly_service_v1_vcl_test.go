@@ -2,13 +2,47 @@ package fastly
 
 import (
 	"fmt"
+	"reflect"
 	"testing"
 
+	gofastly "github.com/fastly/go-fastly/fastly"
 	"github.com/hashicorp/terraform/helper/acctest"
 	"github.com/hashicorp/terraform/helper/resource"
 	"github.com/hashicorp/terraform/terraform"
-	gofastly "github.com/sethvargo/go-fastly/fastly"
 )
+
+func TestResourceFastlyFlattenVCLs(t *testing.T) {
+
+	cases := []struct {
+		remote []*gofastly.VCL
+		local  []map[string]interface{}
+	}{
+		{
+			remote: []*gofastly.VCL{
+				{
+					Name:    "myVCL",
+					Content: "<<EOF somecontent EOF",
+					Main:    true,
+				},
+			},
+			local: []map[string]interface{}{
+				{
+					"name":    "myVCL",
+					"content": "<<EOF somecontent EOF",
+					"main":    true,
+				},
+			},
+		},
+	}
+
+	for _, c := range cases {
+		out := flattenVCLs(c.remote)
+		if !reflect.DeepEqual(out, c.local) {
+			t.Fatalf("Error matching:\nexpected: %#v\n got: %#v", c.local, out)
+		}
+	}
+
+}
 
 func TestAccFastlyServiceV1_VCL_basic(t *testing.T) {
 	var service gofastly.ServiceDetail

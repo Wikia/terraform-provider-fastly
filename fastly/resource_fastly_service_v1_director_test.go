@@ -5,14 +5,14 @@ import (
 	"reflect"
 	"testing"
 
+	gofastly "github.com/fastly/go-fastly/fastly"
 	"github.com/hashicorp/terraform/helper/acctest"
 	"github.com/hashicorp/terraform/helper/resource"
 	"github.com/hashicorp/terraform/helper/schema"
 	"github.com/hashicorp/terraform/terraform"
-	gofastly "github.com/sethvargo/go-fastly/fastly"
 )
 
-func TestFastlyServiceV1_FlattenDirectors(t *testing.T) {
+func TestResourceFastlyFlattenDirectors(t *testing.T) {
 	cases := []struct {
 		remote_director        []*gofastly.Director
 		remote_directorbackend []*gofastly.DirectorBackend
@@ -220,8 +220,8 @@ func testAccCheckFastlyServiceV1DirectorsAttributes(service *gofastly.ServiceDet
 					// we don't know these things ahead of time, so populate them now
 					d.ServiceID = service.ID
 					d.Version = service.ActiveVersion.Number
-					ld.CreatedAt = ""
-					ld.UpdatedAt = ""
+					ld.CreatedAt = nil
+					ld.UpdatedAt = nil
 					if !reflect.DeepEqual(d, ld) {
 						return fmt.Errorf("Bad match Director match, expected (%#v), got (%#v)", d, ld)
 					}

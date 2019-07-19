@@ -6,10 +6,10 @@ import (
 	"regexp"
 	"testing"
 
+	gofastly "github.com/fastly/go-fastly/fastly"
 	"github.com/hashicorp/terraform/helper/acctest"
 	"github.com/hashicorp/terraform/helper/resource"
 	"github.com/hashicorp/terraform/terraform"
-	gofastly "github.com/sethvargo/go-fastly/fastly"
 )
 
 func TestResourceFastlyFlattenDomains(t *testing.T) {
@@ -64,6 +64,7 @@ func TestResourceFastlyFlattenBackend(t *testing.T) {
 				{
 					Name:                "test.notexample.com",
 					Address:             "www.notexample.com",
+					OverrideHost:        "origin.example.com",
 					Port:                uint(80),
 					AutoLoadbalance:     true,
 					BetweenBytesTimeout: uint(10000),
@@ -92,6 +93,7 @@ func TestResourceFastlyFlattenBackend(t *testing.T) {
 				{
 					"name":                  "test.notexample.com",
 					"address":               "www.notexample.com",
+					"override_host":         "origin.example.com",
 					"port":                  80,
 					"auto_loadbalance":      true,
 					"between_bytes_timeout": 10000,
@@ -245,7 +247,10 @@ func TestAccFastlyServiceV1_updateInvalidBackend(t *testing.T) {
 func TestAccFastlyServiceV1_basic(t *testing.T) {
 	var service gofastly.ServiceDetail
 	name := fmt.Sprintf("tf-test-%s", acctest.RandString(10))
-	domainName := fmt.Sprintf("tf-acc-test-%s.com", acctest.RandString(10))
+	comment := fmt.Sprintf("tf-test-%s", acctest.RandString(10))
+	versionComment := fmt.Sprintf("tf-test-%s", acctest.RandString(10))
+	domainName1 := fmt.Sprintf("tf-acc-test-%s.com", acctest.RandString(10))
+	domainName2 := fmt.Sprintf("tf-acc-test-%s.com", acctest.RandString(10))
 
 	resource.Test(t, resource.TestCase{
 		PreCheck:     func() { testAccPreCheck(t) },
@@ -253,16 +258,40 @@ func TestAccFastlyServiceV1_basic(t *testing.T) {
 		CheckDestroy: testAccCheckServiceV1Destroy,
 		Steps: []resource.TestStep{
 			{
-				Config: testAccServiceV1Config(name, domainName),
+				Config: testAccServiceV1Config(name, domainName1),
 				Check: resource.ComposeTestCheckFunc(
 					testAccCheckServiceV1Exists("fastly_service_v1.foo", &service),
-					testAccCheckFastlyServiceV1Attributes(&service, name, []string{domainName}),
 					resource.TestCheckResourceAttr(
 						"fastly_service_v1.foo", "name", name),
+					resource.TestCheckResourceAttr(
+						"fastly_service_v1.foo", "comment", "Managed by Terraform"),
+					resource.TestCheckResourceAttr(
+						"fastly_service_v1.foo", "version_comment", ""),
 					resource.TestCheckResourceAttr(
 						"fastly_service_v1.foo", "active_version", "1"),
 					resource.TestCheckResourceAttr(
 						"fastly_service_v1.foo", "domain.#", "1"),
+					resource.TestCheckResourceAttr(
+						"fastly_service_v1.foo", "backend.#", "1"),
+				),
+			},
+
+			{
+				Config: testAccServiceV1Config_basicUpdate(name, comment, versionComment, domainName2),
+				Check: resource.ComposeTestCheckFunc(
+					testAccCheckServiceV1Exists("fastly_service_v1.foo", &service),
+					resource.TestCheckResourceAttr(
+						"fastly_service_v1.foo", "name", name),
+					resource.TestCheckResourceAttr(
+						"fastly_service_v1.foo", "comment", comment),
+					resource.TestCheckResourceAttr(
+						"fastly_service_v1.foo", "version_comment", versionComment),
+					resource.TestCheckResourceAttr(
+						"fastly_service_v1.foo", "active_version", "2"),
+					resource.TestCheckResourceAttr(
+						"fastly_service_v1.foo", "domain.#", "1"),
+					resource.TestCheckResourceAttr(
+						"fastly_service_v1.foo", "backend.#", "1"),
 				),
 			},
 		},
@@ -498,6 +527,27 @@ resource "fastly_service_v1" "foo" {
 
   force_destroy = true
 }`, name, domain)
+}
+
+func testAccServiceV1Config_basicUpdate(name, comment, versionComment, domain string) string {
+	return fmt.Sprintf(`
+resource "fastly_service_v1" "foo" {
+  name    = "%s"
+  comment = "%s"
+  version_comment = "%s"
+
+  domain {
+    name    = "%s"
+    comment = "tf-testing-domain"
+  }
+
+  backend {
+    address = "aws.amazon.com"
+    name    = "amazon docs"
+  }
+
+  force_destroy = true
+}`, name, comment, versionComment, domain)
 }
 
 func testAccServiceV1Config_domainUpdate(name, domain1, domain2 string) string {

@@ -1,4 +1,41 @@
-## 0.7.0 (Unreleased)
+## 0.8.2 (Unreleased)
+## 0.8.1 (July 12, 2019)
+
+BUG FIXES:
+
+* resource/fastly_service_v1/condition: Support `PREFETCH` in `type` validation ([#171](https://github.com/terraform-providers/terraform-provider-fastly/issues/171))
+
+## 0.8.0 (June 28, 2019)
+
+NOTES:
+
+* provider: This release includes only a Terraform SDK upgrade with compatibility for Terraform v0.12. The provider remains backwards compatible with Terraform v0.11 and there should not be any significant behavioural changes. ([#173](https://github.com/terraform-providers/terraform-provider-fastly/pull/173))
+
+## 0.7.0 (June 25, 2019)
+
+FEATURES:
+
+* Add support for Splunk remote logging ([#130](https://github.com/terraform-providers/terraform-provider-fastly/issues/130))
+* Add support for Microsoft Azure Blob Storage remote logging ([#117](https://github.com/terraform-providers/terraform-provider-fastly/issues/117))
+
+ENHANCEMENTS:
+
+* resource/fastly_service_v1: Add `comment` argument ([#70](https://github.com/terraform-providers/terraform-provider-fastly/issues/70))
+* resource/fastly_service_v1: Add `version_comment` argument ([#126](https://github.com/terraform-providers/terraform-provider-fastly/issues/126))
+* resource/fastly_service_v1/backend: Add `override_host` argument ([#163](https://github.com/terraform-providers/terraform-provider-fastly/issues/163))
+* resource/fastly_service_v1/condition: Add validation for `type` argument ([#148](https://github.com/terraform-providers/terraform-provider-fastly/issues/148))
+
+NOTES:
+
+* provider: Update `go-fastly` client to v1.0.0 ([#165](https://github.com/terraform-providers/terraform-provider-fastly/pull/165))
+
+## 0.6.1 (May 29, 2019)
+
+NOTES:
+
+* provider: Switch codebase dependency management from `govendor` to Go modules ([#128](https://github.com/terraform-providers/terraform-provider-fastly/pull/128))
+* provider: Update `go-fastly` client to v0.4.3 ([#154](https://github.com/terraform-providers/terraform-provider-fastly/pull/154))
+
 ## 0.6.0 (February 08, 2019)
 
 IMPROVEMENTS:

@@ -5,11 +5,49 @@ import (
 	"reflect"
 	"testing"
 
+	gofastly "github.com/fastly/go-fastly/fastly"
 	"github.com/hashicorp/terraform/helper/acctest"
 	"github.com/hashicorp/terraform/helper/resource"
 	"github.com/hashicorp/terraform/terraform"
-	gofastly "github.com/sethvargo/go-fastly/fastly"
 )
+
+func TestResourceFastlyFlattenPapertrail(t *testing.T) {
+
+	cases := []struct {
+		remote []*gofastly.Papertrail
+		local  []map[string]interface{}
+	}{
+		{
+			remote: []*gofastly.Papertrail{
+				{
+					Version:           1,
+					Name:              "papertrailtesting",
+					Address:           "test1.papertrailapp.com",
+					Port:              3600,
+					Format:            "%h %l %u %t %r %>s",
+					ResponseCondition: "test_response_condition",
+				},
+			},
+			local: []map[string]interface{}{
+				{
+					"name":               "papertrailtesting",
+					"address":            "test1.papertrailapp.com",
+					"port":               uint(3600),
+					"format":             "%h %l %u %t %r %>s",
+					"response_condition": "test_response_condition",
+				},
+			},
+		},
+	}
+
+	for _, c := range cases {
+		out := flattenPapertrails(c.remote)
+		if !reflect.DeepEqual(out, c.local) {
+			t.Fatalf("Error matching:\nexpected: %#v\n got: %#v", c.local, out)
+		}
+	}
+
+}
 
 func TestAccFastlyServiceV1_papertrail_basic(t *testing.T) {
 	var service gofastly.ServiceDetail
@@ -89,6 +127,8 @@ func testAccCheckFastlyServiceV1PapertrailAttributes(service *gofastly.ServiceDe
 					// we don't know these things ahead of time, so populate them now
 					p.ServiceID = service.ID
 					p.Version = service.ActiveVersion.Number
+					// we don't support the format_version field, so set it to the zero value
+					lp.FormatVersion = 0
 					// We don't track these, so clear them out because we also wont know
 					// these ahead of time
 					lp.CreatedAt = nil

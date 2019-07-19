@@ -1,17 +1,14 @@
 package fastly
 
 import (
-	"crypto/sha1"
-	"crypto/sha512"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"log"
 	"strings"
 	"time"
 
+	gofastly "github.com/fastly/go-fastly/fastly"
 	"github.com/hashicorp/terraform/helper/schema"
-	gofastly "github.com/sethvargo/go-fastly/fastly"
 )
 
 var fastlyNoServiceFoundErr = errors.New("No matching Fastly Service found")
@@ -31,6 +28,19 @@ func resourceServiceV1() *schema.Resource {
 				Type:        schema.TypeString,
 				Required:    true,
 				Description: "Unique name for this Service",
+			},
+
+			"comment": {
+				Type:        schema.TypeString,
+				Optional:    true,
+				Default:     "Managed by Terraform",
+				Description: "A personal freeform descriptive note",
+			},
+
+			"version_comment": {
+				Type:        schema.TypeString,
+				Optional:    true,
+				Description: "A personal freeform descriptive note",
 			},
 
 			// Active Version represents the currently activated version in Fastly. In
@@ -81,11 +91,6 @@ func resourceServiceV1() *schema.Resource {
 							Type:        schema.TypeString,
 							Required:    true,
 							Description: "The statement used to determine if the condition is met",
-							StateFunc: func(v interface{}) string {
-								value := v.(string)
-								// Trim newlines and spaces, to match Fastly API
-								return strings.TrimSpace(value)
-							},
 						},
 						"priority": {
 							Type:        schema.TypeInt,
@@ -94,9 +99,10 @@ func resourceServiceV1() *schema.Resource {
 							Description: "A number used to determine the order in which multiple conditions execute. Lower numbers execute first",
 						},
 						"type": {
-							Type:        schema.TypeString,
-							Required:    true,
-							Description: "Type of the condition, either `REQUEST`, `RESPONSE`, or `CACHE`",
+							Type:         schema.TypeString,
+							Required:     true,
+							Description:  "Type of the condition, either `REQUEST`, `RESPONSE`, or `CACHE`",
+							ValidateFunc: validateConditionType(),
 						},
 					},
 				},
@@ -255,6 +261,11 @@ func resourceServiceV1() *schema.Resource {
 							Default:     80,
 							Description: "The port number Backend responds on. Default 80",
 						},
+						"override_host": {
+							Type:        schema.TypeString,
+							Optional:    true,
+							Description: "The hostname to override the Host header",
+						},
 						"request_condition": {
 							Type:        schema.TypeString,
 							Optional:    true,
@@ -381,23 +392,18 @@ func resourceServiceV1() *schema.Resource {
 							Description: "Selected POP to serve as a 'shield' for origin servers.",
 						},
 						"quorum": {
-							Type:        schema.TypeInt,
-							Optional:    true,
-							Default:     75,
-							Description: "Percentage of capacity that needs to be up for the director itself to be considered up",
-							ValidateFunc: func(v interface{}, k string) (ws []string, es []error) {
-								if v.(int) < 0 || v.(int) > 100 {
-									es = append(es, fmt.Errorf("Fastly Director quorum should be a percentage between 0 and 100; found %d", v.(int)))
-								}
-								return
-							},
+							Type:         schema.TypeInt,
+							Optional:     true,
+							Default:      75,
+							Description:  "Percentage of capacity that needs to be up for the director itself to be considered up",
+							ValidateFunc: validateDirectorQuorum(),
 						},
 						"type": {
 							Type:         schema.TypeInt,
 							Optional:     true,
 							Default:      1,
 							Description:  "Type of load balance group to use. Integer, 1 to 4. Values: 1 (random), 3 (hash), 4 (client)",
-							ValidateFunc: validateDirectorType,
+							ValidateFunc: validateDirectorType(),
 						},
 						"retries": {
 							Type:        schema.TypeInt,
@@ -497,40 +503,16 @@ func resourceServiceV1() *schema.Resource {
 							Description: "A name to refer to this Header object",
 						},
 						"action": {
-							Type:        schema.TypeString,
-							Required:    true,
-							Description: "One of set, append, delete, regex, or regex_repeat",
-							ValidateFunc: func(v interface{}, k string) (ws []string, es []error) {
-								var found bool
-								for _, t := range []string{"set", "append", "delete", "regex", "regex_repeat"} {
-									if v.(string) == t {
-										found = true
-									}
-								}
-								if !found {
-									es = append(es, fmt.Errorf(
-										"Fastly Header action is case sensitive and must be one of 'set', 'append', 'delete', 'regex', or 'regex_repeat'; found: %s", v.(string)))
-								}
-								return
-							},
+							Type:         schema.TypeString,
+							Required:     true,
+							Description:  "One of set, append, delete, regex, or regex_repeat",
+							ValidateFunc: validateHeaderAction(),
 						},
 						"type": {
-							Type:        schema.TypeString,
-							Required:    true,
-							Description: "Type to manipulate: request, fetch, cache, response",
-							ValidateFunc: func(v interface{}, k string) (ws []string, es []error) {
-								var found bool
-								for _, t := range []string{"request", "fetch", "cache", "response"} {
-									if v.(string) == t {
-										found = true
-									}
-								}
-								if !found {
-									es = append(es, fmt.Errorf(
-										"Fastly Header type is case sensitive and must be one of 'request', 'fetch', 'cache', or 'response'; found: %s", v.(string)))
-								}
-								return
-							},
+							Type:         schema.TypeString,
+							Required:     true,
+							Description:  "Type to manipulate: request, fetch, cache, response",
+							ValidateFunc: validateHeaderType(),
 						},
 						"destination": {
 							Type:        schema.TypeString,
@@ -612,15 +594,6 @@ func resourceServiceV1() *schema.Resource {
 							DefaultFunc: schema.EnvDefaultFunc("FASTLY_S3_ACCESS_KEY", ""),
 							Description: "AWS Access Key",
 							Sensitive:   true,
-							StateFunc: func(v interface{}) string {
-								switch v.(type) {
-								case string:
-									hash := sha512.Sum512([]byte(v.(string)))
-									return hex.EncodeToString(hash[:])
-								default:
-									return ""
-								}
-							},
 						},
 						"s3_secret_key": {
 							Type:        schema.TypeString,
@@ -628,15 +601,6 @@ func resourceServiceV1() *schema.Resource {
 							DefaultFunc: schema.EnvDefaultFunc("FASTLY_S3_SECRET_KEY", ""),
 							Description: "AWS Secret Key",
 							Sensitive:   true,
-							StateFunc: func(v interface{}) string {
-								switch v.(type) {
-								case string:
-									hash := sha512.Sum512([]byte(v.(string)))
-									return hex.EncodeToString(hash[:])
-								default:
-									return ""
-								}
-							},
 						},
 						// Optional fields
 						"path": {
@@ -673,7 +637,7 @@ func resourceServiceV1() *schema.Resource {
 							Optional:     true,
 							Default:      1,
 							Description:  "The version of the custom logging format used for the configured endpoint. Can be either 1 or 2. (Default: 1)",
-							ValidateFunc: validateLoggingFormatVersion,
+							ValidateFunc: validateLoggingFormatVersion(),
 						},
 						"timestamp_format": {
 							Type:        schema.TypeString,
@@ -697,13 +661,13 @@ func resourceServiceV1() *schema.Resource {
 							Optional:     true,
 							Default:      "classic",
 							Description:  "How the message should be formatted.",
-							ValidateFunc: validateLoggingMessageType,
+							ValidateFunc: validateLoggingMessageType(),
 						},
 						"placement": {
 							Type:         schema.TypeString,
 							Optional:     true,
 							Description:  "Where in the generated VCL the logging call should be placed.",
-							ValidateFunc: validateLoggingPlacement,
+							ValidateFunc: validateLoggingPlacement(),
 						},
 					},
 				},
@@ -747,7 +711,7 @@ func resourceServiceV1() *schema.Resource {
 							Type:         schema.TypeString,
 							Optional:     true,
 							Description:  "Where in the generated VCL the logging call should be placed.",
-							ValidateFunc: validateLoggingPlacement,
+							ValidateFunc: validateLoggingPlacement(),
 						},
 					},
 				},
@@ -781,7 +745,7 @@ func resourceServiceV1() *schema.Resource {
 							Optional:     true,
 							Default:      1,
 							Description:  "The version of the custom logging format used for the configured endpoint. Can be either 1 or 2. (Default: 1)",
-							ValidateFunc: validateLoggingFormatVersion,
+							ValidateFunc: validateLoggingFormatVersion(),
 						},
 						"response_condition": {
 							Type:        schema.TypeString,
@@ -794,13 +758,13 @@ func resourceServiceV1() *schema.Resource {
 							Optional:     true,
 							Default:      "classic",
 							Description:  "How the message should be formatted.",
-							ValidateFunc: validateLoggingMessageType,
+							ValidateFunc: validateLoggingMessageType(),
 						},
 						"placement": {
 							Type:         schema.TypeString,
 							Optional:     true,
 							Description:  "Where in the generated VCL the logging call should be placed.",
-							ValidateFunc: validateLoggingPlacement,
+							ValidateFunc: validateLoggingPlacement(),
 						},
 					},
 				},
@@ -881,7 +845,7 @@ func resourceServiceV1() *schema.Resource {
 							Type:         schema.TypeString,
 							Optional:     true,
 							Description:  "Where in the generated VCL the logging call should be placed.",
-							ValidateFunc: validateLoggingPlacement,
+							ValidateFunc: validateLoggingPlacement(),
 						},
 					},
 				},
@@ -950,7 +914,7 @@ func resourceServiceV1() *schema.Resource {
 							Type:         schema.TypeString,
 							Optional:     true,
 							Description:  "Where in the generated VCL the logging call should be placed.",
-							ValidateFunc: validateLoggingPlacement,
+							ValidateFunc: validateLoggingPlacement(),
 						},
 					},
 				},
@@ -990,7 +954,7 @@ func resourceServiceV1() *schema.Resource {
 							Optional:     true,
 							Default:      1,
 							Description:  "The version of the custom logging format. Can be either 1 or 2. (Default: 1)",
-							ValidateFunc: validateLoggingFormatVersion,
+							ValidateFunc: validateLoggingFormatVersion(),
 						},
 						"token": {
 							Type:        schema.TypeString,
@@ -1027,13 +991,13 @@ func resourceServiceV1() *schema.Resource {
 							Optional:     true,
 							Default:      "classic",
 							Description:  "How the message should be formatted.",
-							ValidateFunc: validateLoggingMessageType,
+							ValidateFunc: validateLoggingMessageType(),
 						},
 						"placement": {
 							Type:         schema.TypeString,
 							Optional:     true,
 							Description:  "Where in the generated VCL the logging call should be placed.",
-							ValidateFunc: validateLoggingPlacement,
+							ValidateFunc: validateLoggingPlacement(),
 						},
 					},
 				},
@@ -1079,7 +1043,7 @@ func resourceServiceV1() *schema.Resource {
 							Optional:     true,
 							Default:      1,
 							Description:  "The version of the custom logging format used for the configured endpoint. Can be either 1 or 2. (Default: 1)",
-							ValidateFunc: validateLoggingFormatVersion,
+							ValidateFunc: validateLoggingFormatVersion(),
 						},
 						"response_condition": {
 							Type:        schema.TypeString,
@@ -1091,7 +1055,151 @@ func resourceServiceV1() *schema.Resource {
 							Type:         schema.TypeString,
 							Optional:     true,
 							Description:  "Where in the generated VCL the logging call should be placed.",
-							ValidateFunc: validateLoggingPlacement,
+							ValidateFunc: validateLoggingPlacement(),
+						},
+					},
+				},
+			},
+
+			"splunk": {
+				Type:     schema.TypeSet,
+				Optional: true,
+				Elem: &schema.Resource{
+					Schema: map[string]*schema.Schema{
+						// Required fields
+						"name": {
+							Type:        schema.TypeString,
+							Required:    true,
+							Description: "The unique name of the Splunk logging endpoint",
+						},
+						"url": {
+							Type:        schema.TypeString,
+							Required:    true,
+							Description: "The Splunk URL to stream logs to",
+						},
+						"token": {
+							Type:        schema.TypeString,
+							Required:    true,
+							DefaultFunc: schema.EnvDefaultFunc("FASTLY_SPLUNK_TOKEN", ""),
+							Description: "The Splunk token to be used for authentication",
+							Sensitive:   true,
+						},
+						// Optional fields
+						"format": {
+							Type:        schema.TypeString,
+							Optional:    true,
+							Default:     "%h %l %u %t \"%r\" %>s %b",
+							Description: "Apache-style string or VCL variables to use for log formatting (default: `%h %l %u %t \"%r\" %>s %b`)",
+						},
+						"format_version": {
+							Type:         schema.TypeInt,
+							Optional:     true,
+							Default:      2,
+							Description:  "The version of the custom logging format used for the configured endpoint. Can be either 1 or 2. (default: 2)",
+							ValidateFunc: validateLoggingFormatVersion(),
+						},
+						"placement": {
+							Type:         schema.TypeString,
+							Optional:     true,
+							Description:  "Where in the generated VCL the logging call should be placed",
+							ValidateFunc: validateLoggingPlacement(),
+						},
+						"response_condition": {
+							Type:        schema.TypeString,
+							Optional:    true,
+							Description: "The name of the condition to apply",
+						},
+					},
+				},
+			},
+
+			"blobstoragelogging": {
+				Type:     schema.TypeSet,
+				Optional: true,
+				Elem: &schema.Resource{
+					Schema: map[string]*schema.Schema{
+						// Required fields
+						"name": {
+							Type:        schema.TypeString,
+							Required:    true,
+							Description: "The unique name of the Azure Blob Storage logging endpoint",
+						},
+						"account_name": {
+							Type:        schema.TypeString,
+							Required:    true,
+							Description: "The unique Azure Blob Storage namespace in which your data objects are stored",
+						},
+						"container": {
+							Type:        schema.TypeString,
+							Required:    true,
+							Description: "The name of the Azure Blob Storage container in which to store logs",
+						},
+						"sas_token": {
+							Type:        schema.TypeString,
+							Required:    true,
+							DefaultFunc: schema.EnvDefaultFunc("FASTLY_AZURE_SHARED_ACCESS_SIGNATURE", ""),
+							Description: "The Azure shared access signature providing write access to the blob service objects",
+							Sensitive:   true,
+						},
+						// Optional fields
+						"path": {
+							Type:        schema.TypeString,
+							Optional:    true,
+							Description: "The path to upload logs to. Must end with a trailing slash",
+						},
+						"period": {
+							Type:        schema.TypeInt,
+							Optional:    true,
+							Default:     3600,
+							Description: "How frequently the logs should be transferred, in seconds (default: 3600)",
+						},
+						"timestamp_format": {
+							Type:        schema.TypeString,
+							Optional:    true,
+							Default:     "%Y-%m-%dT%H:%M:%S.000",
+							Description: "strftime specified timestamp formatting (default: `%Y-%m-%dT%H:%M:%S.000`)",
+						},
+						"gzip_level": {
+							Type:        schema.TypeInt,
+							Optional:    true,
+							Default:     0,
+							Description: "The Gzip compression level (default: 0)",
+						},
+						"public_key": {
+							Type:        schema.TypeString,
+							Optional:    true,
+							Description: "The PGP public key that Fastly will use to encrypt your log files before writing them to disk",
+						},
+						"format": {
+							Type:        schema.TypeString,
+							Optional:    true,
+							Default:     "%h %l %u %t \"%r\" %>s %b",
+							Description: "Apache-style string or VCL variables to use for log formatting (default: `%h %l %u %t \"%r\" %>s %b`)",
+						},
+						"format_version": {
+							Type:         schema.TypeInt,
+							Optional:     true,
+							Default:      2,
+							Description:  "The version of the custom logging format used for the configured endpoint. Can be either 1 or 2. (default: 2)",
+							ValidateFunc: validateLoggingFormatVersion(),
+						},
+						"message_type": {
+							Type:         schema.TypeString,
+							Optional:     true,
+							Default:      "classic",
+							Description:  "How the message should be formatted (default: `classic`)",
+							ValidateFunc: validateLoggingMessageType(),
+						},
+						"placement": {
+							Type:         schema.TypeString,
+							Optional:     true,
+							Description:  "Where in the generated VCL the logging call should be placed",
+							ValidateFunc: validateLoggingPlacement(),
+						},
+						"response_condition": {
+							Type:        schema.TypeString,
+							Optional:    true,
+							Description: "The name of the condition to apply",
 						},
 					},
 				},
@@ -1236,15 +1344,6 @@ func resourceServiceV1() *schema.Resource {
 							Type:        schema.TypeString,
 							Required:    true,
 							Description: "The contents of this VCL configuration",
-							StateFunc: func(v interface{}) string {
-								switch v.(type) {
-								case string:
-									hash := sha1.Sum([]byte(v.(string)))
-									return hex.EncodeToString(hash[:])
-								default:
-									return ""
-								}
-							},
 						},
 						"main": {
 							Type:        schema.TypeBool,
@@ -1267,36 +1366,15 @@ func resourceServiceV1() *schema.Resource {
 							Description: "A unique name to refer to this VCL snippet",
 						},
 						"type": {
-							Type:        schema.TypeString,
-							Required:    true,
-							Description: "One of init, recv, hit, miss, pass, fetch, error, deliver, log, none",
-							ValidateFunc: func(v interface{}, k string) (ws []string, es []error) {
-								var found bool
-								for _, t := range []string{"init", "recv", "hit", "miss", "pass", "fetch", "error", "deliver", "log", "none"} {
-									if v.(string) == t {
-										found = true
-									}
-								}
-								if !found {
-									es = append(es, fmt.Errorf(
-										"Fastly VCL snippet location is case sensitive and must be one of 'init', 'recv', 'hit', 'miss', 'pass', 'fetch', 'error', 'deliver', 'log' or 'none'; found: %s", v.(string)))
-								}
-								return
-							},
+							Type:         schema.TypeString,
+							Required:     true,
+							Description:  "One of init, recv, hit, miss, pass, fetch, error, deliver, log, none",
+							ValidateFunc: validateSnippetType(),
 						},
 						"content": {
 							Type:        schema.TypeString,
 							Required:    true,
 							Description: "The contents of the VCL snippet",
-							StateFunc: func(v interface{}) string {
-								switch v.(type) {
-								case string:
-									hash := sha1.Sum([]byte(v.(string)))
-									return hex.EncodeToString(hash[:])
-								default:
-									return ""
-								}
-							},
 						},
 						"priority": {
 							Type:        schema.TypeInt,
@@ -1319,7 +1397,7 @@ func resourceServiceV1Create(d *schema.ResourceData, meta interface{}) error {
 	conn := meta.(*FastlyClient).conn
 	service, err := conn.CreateService(&gofastly.CreateServiceInput{
 		Name:    d.Get("name").(string),
-		Comment: "Managed by Terraform",
+		Comment: d.Get("comment").(string),
 	})
 
 	if err != nil {
@@ -1337,11 +1415,12 @@ func resourceServiceV1Update(d *schema.ResourceData, meta interface{}) error {
 
 	conn := meta.(*FastlyClient).conn
 
-	// Update Name. No new verions is required for this
-	if d.HasChange("name") {
+	// Update Name and/or Comment. No new verions is required for this
+	if d.HasChange("name") || d.HasChange("comment") {
 		_, err := conn.UpdateService(&gofastly.UpdateServiceInput{
-			ID:   d.Id(),
-			Name: d.Get("name").(string),
+			ID:      d.Id(),
+			Name:    d.Get("name").(string),
+			Comment: d.Get("comment").(string),
 		})
 		if err != nil {
 			return err
@@ -1369,6 +1448,8 @@ func resourceServiceV1Update(d *schema.ResourceData, meta interface{}) error {
 		"syslog",
 		"sumologic",
 		"logentries",
+		"splunk",
+		"blobstoragelogging",
 		"response_object",
 		"condition",
 		"request_setting",
@@ -1378,6 +1459,28 @@ func resourceServiceV1Update(d *schema.ResourceData, meta interface{}) error {
 	} {
 		if d.HasChange(v) {
 			needsChange = true
+		}
+	}
+
+	// Update the active version's comment. No new version is required for this
+	if d.HasChange("version_comment") && !needsChange {
+		latestVersion := d.Get("active_version").(int)
+		if latestVersion == 0 {
+			// If the service was just created, there is an empty Version 1 available
+			// that is unlocked and can be updated
+			latestVersion = 1
+		}
+
+		opts := gofastly.UpdateVersionInput{
+			Service: d.Id(),
+			Version: latestVersion,
+			Comment: d.Get("version_comment").(string),
+		}
+
+		log.Printf("[DEBUG] Update Version opts: %#v", opts)
+		_, err := conn.UpdateVersion(&opts)
+		if err != nil {
+			return err
 		}
 	}
 
@@ -1406,6 +1509,21 @@ func resourceServiceV1Update(d *schema.ResourceData, meta interface{}) error {
 			// itself. Typically, 7 seconds is enough
 			log.Print("[DEBUG] Sleeping 7 seconds to allow Fastly Version to be available")
 			time.Sleep(7 * time.Second)
+
+			// Update the cloned version's comment
+			if d.Get("version_comment").(string) != "" {
+				opts := gofastly.UpdateVersionInput{
+					Service: d.Id(),
+					Version: latestVersion,
+					Comment: d.Get("version_comment").(string),
+				}
+
+				log.Printf("[DEBUG] Update Version opts: %#v", opts)
+				_, err := conn.UpdateVersion(&opts)
+				if err != nil {
+					return err
+				}
+			}
 		}
 
 		// update general settings
@@ -1658,6 +1776,7 @@ func resourceServiceV1Update(d *schema.ResourceData, meta interface{}) error {
 					Version:             latestVersion,
 					Name:                df["name"].(string),
 					Address:             df["address"].(string),
+					OverrideHost:        df["override_host"].(string),
 					AutoLoadbalance:     gofastly.CBool(df["auto_loadbalance"].(bool)),
 					SSLCheckCert:        gofastly.CBool(df["ssl_check_cert"].(bool)),
 					SSLHostname:         df["ssl_hostname"].(string),
@@ -2353,6 +2472,131 @@ func resourceServiceV1Update(d *schema.ResourceData, meta interface{}) error {
 			}
 		}
 
+		// find difference in Splunk logging configurations
+		if d.HasChange("splunk") {
+			os, ns := d.GetChange("splunk")
+			if os == nil {
+				os = new(schema.Set)
+			}
+			if ns == nil {
+				ns = new(schema.Set)
+			}
+
+			oss := os.(*schema.Set)
+			nss := ns.(*schema.Set)
+
+			remove := oss.Difference(nss).List()
+			add := nss.Difference(oss).List()
+
+			// DELETE old Splunk logging configurations
+			for _, sRaw := range remove {
+				sf := sRaw.(map[string]interface{})
+				opts := gofastly.DeleteSplunkInput{
+					Service: d.Id(),
+					Version: latestVersion,
+					Name:    sf["name"].(string),
+				}
+
+				log.Printf("[DEBUG] Splunk removal opts: %#v", opts)
+				err := conn.DeleteSplunk(&opts)
+				if errRes, ok := err.(*gofastly.HTTPError); ok {
+					if errRes.StatusCode != 404 {
+						return err
+					}
+				} else if err != nil {
+					return err
+				}
+			}
+
+			// POST new/updated Splunk configurations
+			for _, sRaw := range add {
+				sf := sRaw.(map[string]interface{})
+				opts := gofastly.CreateSplunkInput{
+					Service:           d.Id(),
+					Version:           latestVersion,
+					Name:              sf["name"].(string),
+					URL:               sf["url"].(string),
+					Format:            sf["format"].(string),
+					FormatVersion:     uint(sf["format_version"].(int)),
+					ResponseCondition: sf["response_condition"].(string),
+					Placement:         sf["placement"].(string),
+					Token:             sf["token"].(string),
+				}
+
+				log.Printf("[DEBUG] Splunk create opts: %#v", opts)
+				_, err := conn.CreateSplunk(&opts)
+				if err != nil {
+					return err
+				}
+			}
+		}
+
+		// find difference in Blob Storage logging configurations
+		if d.HasChange("blobstoragelogging") {
+			obsl, nbsl := d.GetChange("blobstoragelogging")
+			if obsl == nil {
+				obsl = new(schema.Set)
+			}
+			if nbsl == nil {
+				nbsl = new(schema.Set)
+			}
+
+			obsls := obsl.(*schema.Set)
+			nbsls := nbsl.(*schema.Set)
+
+			remove := obsls.Difference(nbsls).List()
+			add := nbsls.Difference(obsls).List()
+
+			// DELETE old Blob Storage logging configurations
+			for _, bslRaw := range remove {
+				bslf := bslRaw.(map[string]interface{})
+				opts := gofastly.DeleteBlobStorageInput{
+					Service: d.Id(),
+					Version: latestVersion,
+					Name:    bslf["name"].(string),
+				}
+
+				log.Printf("[DEBUG] Blob Storage logging removal opts: %#v", opts)
+				err := conn.DeleteBlobStorage(&opts)
+				if errRes, ok := err.(*gofastly.HTTPError); ok {
+					if errRes.StatusCode != 404 {
+						return err
+					}
+				} else if err != nil {
+					return err
+				}
+			}
+
+			// POST new/updated Blob Storage logging configurations
+			for _, bslRaw := range add {
+				bslf := bslRaw.(map[string]interface{})
+				opts := gofastly.CreateBlobStorageInput{
+					Service:           d.Id(),
+					Version:           latestVersion,
+					Name:              bslf["name"].(string),
+					Path:              bslf["path"].(string),
+					AccountName:       bslf["account_name"].(string),
+					Container:         bslf["container"].(string),
+					SASToken:          bslf["sas_token"].(string),
+					Period:            uint(bslf["period"].(int)),
+					TimestampFormat:   bslf["timestamp_format"].(string),
+					GzipLevel:         uint(bslf["gzip_level"].(int)),
+					PublicKey:         bslf["public_key"].(string),
+					Format:            bslf["format"].(string),
+					FormatVersion:     uint(bslf["format_version"].(int)),
+					MessageType:       bslf["message_type"].(string),
+					Placement:         bslf["placement"].(string),
+					ResponseCondition: bslf["response_condition"].(string),
+				}
+
+				log.Printf("[DEBUG] Blob Storage logging create opts: %#v", opts)
+				_, err := conn.CreateBlobStorage(&opts)
+				if err != nil {
+					return err
+				}
+			}
+		}
+
 		// find difference in Response Object
 		if d.HasChange("response_object") {
 			or, nr := d.GetChange("response_object")
@@ -2711,6 +2955,8 @@ func resourceServiceV1Read(d *schema.ResourceData, meta interface{}) error {
 	}
 
 	d.Set("name", s.Name)
+	d.Set("comment", s.Comment)
+	d.Set("version_comment", s.Version.Comment)
 	d.Set("active_version", s.ActiveVersion.Number)
 
 	// If CreateService succeeds, but initial updates to the Service fail, we'll
@@ -2918,7 +3164,7 @@ func resourceServiceV1Read(d *schema.ResourceData, meta interface{}) error {
 
 		// refresh BigQuery Logging
 		log.Printf("[DEBUG] Refreshing BigQuery for (%s)", d.Id())
-		BQList, err := conn.GetBigQuery(&gofastly.GetBigQueryInput{
+		BQList, err := conn.ListBigQueries(&gofastly.ListBigQueriesInput{
 			Service: d.Id(),
 			Version: s.ActiveVersion.Number,
 		})
@@ -2964,6 +3210,40 @@ func resourceServiceV1Read(d *schema.ResourceData, meta interface{}) error {
 
 		if err := d.Set("logentries", lel); err != nil {
 			log.Printf("[WARN] Error setting Logentries for (%s): %s", d.Id(), err)
+		}
+
+		// refresh Splunk Logging
+		log.Printf("[DEBUG] Refreshing Splunks for (%s)", d.Id())
+		splunkList, err := conn.ListSplunks(&gofastly.ListSplunksInput{
+			Service: d.Id(),
+			Version: s.ActiveVersion.Number,
+		})
+
+		if err != nil {
+			return fmt.Errorf("[ERR] Error looking up Splunks for (%s), version (%v): %s", d.Id(), s.ActiveVersion.Number, err)
+		}
+
+		spl := flattenSplunks(splunkList)
+
+		if err := d.Set("splunk", spl); err != nil {
+			log.Printf("[WARN] Error setting Splunks for (%s): %s", d.Id(), err)
+		}
+
+		// refresh Blob Storage Logging
+		log.Printf("[DEBUG] Refreshing Blob Storages for (%s)", d.Id())
+		blobStorageList, err := conn.ListBlobStorages(&gofastly.ListBlobStoragesInput{
+			Service: d.Id(),
+			Version: s.ActiveVersion.Number,
+		})
+
+		if err != nil {
+			return fmt.Errorf("[ERR] Error looking up Blob Storages for (%s), version (%v): %s", d.Id(), s.ActiveVersion.Number, err)
+		}
+
+		bsl := flattenBlobStorages(blobStorageList)
+
+		if err := d.Set("blobstoragelogging", bsl); err != nil {
+			log.Printf("[WARN] Error setting Blob Storages for (%s): %s", d.Id(), err)
 		}
 
 		// refresh Response Objects
@@ -3181,6 +3461,7 @@ func flattenBackends(backendList []*gofastly.Backend) []map[string]interface{} {
 			"first_byte_timeout":    int(b.FirstByteTimeout),
 			"max_conn":              int(b.MaxConn),
 			"port":                  int(b.Port),
+			"override_host":         b.OverrideHost,
 			"shield":                b.Shield,
 			"ssl_check_cert":        b.SSLCheckCert,
 			"ssl_hostname":          b.SSLHostname,
@@ -3617,6 +3898,67 @@ func flattenLogentries(logentriesList []*gofastly.Logentries) []map[string]inter
 	}
 
 	return LEList
+}
+
+func flattenSplunks(splunkList []*gofastly.Splunk) []map[string]interface{} {
+	var sl []map[string]interface{}
+	for _, s := range splunkList {
+		// Convert Splunk to a map for saving to state.
+		nbs := map[string]interface{}{
+			"name":               s.Name,
+			"url":                s.URL,
+			"format":             s.Format,
+			"format_version":     s.FormatVersion,
+			"response_condition": s.ResponseCondition,
+			"placement":          s.Placement,
+			"token":              s.Token,
+		}
+
+		// prune any empty values that come from the default string value in structs
+		for k, v := range nbs {
+			if v == "" {
+				delete(nbs, k)
+			}
+		}
+
+		sl = append(sl, nbs)
+	}
+
+	return sl
+}
+
+func flattenBlobStorages(blobStorageList []*gofastly.BlobStorage) []map[string]interface{} {
+	var bsl []map[string]interface{}
+	for _, bs := range blobStorageList {
+		// Convert Blob Storages to a map for saving to state.
+		nbs := map[string]interface{}{
+			"name":               bs.Name,
+			"path":               bs.Path,
+			"account_name":       bs.AccountName,
+			"container":          bs.Container,
+			"sas_token":          bs.SASToken,
+			"period":             bs.Period,
+			"timestamp_format":   bs.TimestampFormat,
+			"gzip_level":         bs.GzipLevel,
+			"public_key":         bs.PublicKey,
+			"format":             bs.Format,
+			"format_version":     bs.FormatVersion,
+			"message_type":       bs.MessageType,
+			"placement":          bs.Placement,
+			"response_condition": bs.ResponseCondition,
+		}
+
+		// prune any empty values that come from the default string value in structs
+		for k, v := range nbs {
+			if v == "" {
+				delete(nbs, k)
+			}
+		}
+
+		bsl = append(bsl, nbs)
+	}
+
+	return bsl
 }
 
 func flattenResponseObjects(responseObjectList []*gofastly.ResponseObject) []map[string]interface{} {
